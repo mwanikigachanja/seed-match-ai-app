@@ -3,25 +3,32 @@
 import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Lightbulb, Loader2, Copy, Check, Volume2 } from "lucide-react"
-import { generateAgronomicAdviceAI } from "@/lib/chrome-ai"
+import { Lightbulb, Loader2, Copy, Check, Volume2, Globe } from "lucide-react"
+import { generateAgronomicAdvice, translateAdvice } from "@/lib/agronomic-advice"
+import type { Language } from "@/lib/language-utils"
 
 interface AgronomicAdviceProps {
   cropName: string
   altitude: number
+  language: Language
 }
 
-export default function AgronomicAdvice({ cropName, altitude }: AgronomicAdviceProps) {
+export default function AgronomicAdvice({ cropName, altitude, language }: AgronomicAdviceProps) {
   const [advice, setAdvice] = useState<string | null>(null)
+  const [translatedAdvice, setTranslatedAdvice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [translating, setTranslating] = useState(false)
   const [copied, setCopied] = useState(false)
   const [speaking, setSpeaking] = useState(false)
+  const [showTranslated, setShowTranslated] = useState(false)
 
   const handleGetAdvice = async () => {
     setLoading(true)
     try {
-      const generatedAdvice = await generateAgronomicAdviceAI(cropName, altitude)
+      const generatedAdvice = await generateAgronomicAdvice(cropName, altitude)
       setAdvice(generatedAdvice || getDefaultAdvice(cropName))
+      setTranslatedAdvice(null)
+      setShowTranslated(false)
     } catch (error) {
       console.error("Failed to get advice:", error)
       setAdvice(getDefaultAdvice(cropName))
@@ -30,16 +37,35 @@ export default function AgronomicAdvice({ cropName, altitude }: AgronomicAdviceP
     }
   }
 
+  const handleTranslate = async () => {
+    if (!advice) return
+
+    setTranslating(true)
+    try {
+      const translated = await translateAdvice(advice, language)
+      setTranslatedAdvice(translated)
+      setShowTranslated(true)
+    } catch (error) {
+      console.error("Failed to translate:", error)
+      setTranslatedAdvice(advice)
+      setShowTranslated(true)
+    } finally {
+      setTranslating(false)
+    }
+  }
+
   const handleCopy = () => {
-    if (advice) {
-      navigator.clipboard.writeText(advice)
+    const textToCopy = showTranslated ? translatedAdvice : advice
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
   }
 
   const handleSpeak = () => {
-    if (!advice) return
+    const textToSpeak = showTranslated ? translatedAdvice : advice
+    if (!textToSpeak) return
 
     if (speaking) {
       window.speechSynthesis.cancel()
@@ -48,10 +74,13 @@ export default function AgronomicAdvice({ cropName, altitude }: AgronomicAdviceP
     }
 
     setSpeaking(true)
-    const utterance = new SpeechSynthesisUtterance(advice)
+    const utterance = new SpeechSynthesisUtterance(textToSpeak)
+    utterance.lang = language === "sw" ? "sw-TZ" : language === "fr" ? "fr-FR" : "en-US"
     utterance.onend = () => setSpeaking(false)
     window.speechSynthesis.speak(utterance)
   }
+
+  const displayAdvice = showTranslated ? translatedAdvice : advice
 
   return (
     <Card className="p-4 bg-accent/5 border-accent/20">
@@ -77,9 +106,32 @@ export default function AgronomicAdvice({ cropName, altitude }: AgronomicAdviceP
           </Button>
         ) : (
           <>
-            <div className="bg-background p-3 rounded text-sm text-foreground whitespace-pre-wrap">{advice}</div>
+            <div className="bg-background p-3 rounded text-sm text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">
+              {displayAdvice}
+            </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              {language !== "en" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleTranslate}
+                  disabled={translating}
+                  className="flex-1 bg-transparent"
+                >
+                  {translating ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      Translating...
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-3 h-3 mr-1" />
+                      {showTranslated ? "Show English" : "Translate"}
+                    </>
+                  )}
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={handleSpeak} className="flex-1 bg-transparent">
                 <Volume2 className="w-3 h-3 mr-1" />
                 {speaking ? "Stop" : "Speak"}
@@ -131,6 +183,6 @@ function getDefaultAdvice(cropName: string): string {
 
   return (
     adviceMap[cropName] ||
-    `1. Plant during appropriate season for your altitude\n2. Prepare soil with organic matter\n3. Water regularly\n4. Watch for pests and diseases\n5. Harvest at proper maturity`
+    `1. Plant during appropriate season\n2. Prepare soil with organic matter\n3. Water regularly\n4. Watch for pests and diseases\n5. Harvest at proper maturity`
   )
 }
