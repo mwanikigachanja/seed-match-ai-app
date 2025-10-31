@@ -70,4 +70,3 @@ function getDefaultAdvice(cropName: string, altitude: number): string {
     `1. Plant during appropriate season for your altitude (${altitude}m)\n2. Prepare soil with organic matter\n3. Water regularly\n4. Watch for pests and diseases\n5. Harvest at proper maturity`
   )
 }
-

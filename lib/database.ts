@@ -1,4 +1,3 @@
-
 // lib/database.ts
 
 export interface Supplier {
