@@ -3,52 +3,77 @@
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Volume2, Copy, Check, Sparkles, Loader2, Droplets, Calendar, TrendingUp, Leaf } from "lucide-react"
-import { generateEnhancedDescription, translateToKiswahili } from "@/lib/chrome-ai"
+import {
+  Volume2,
+  Copy,
+  Check,
+  Sparkles,
+  Loader2,
+  Droplets,
+  Calendar,
+  TrendingUp,
+  Leaf,
+} from "lucide-react"
+import { useChromeAi, useTextToSpeech } from "@/lib/chrome-ai"
 import AgronomicAdvice from "./agronomic-advice"
+import type { Language } from "@/lib/language-utils"
 
 interface Recommendation {
   id: string
   name: string
   variety: string
-  altitude_zone: string
   altitude_range: string
   description: string
   planting_season: string
   yield_potential: string
-  kiswahili_name: string
   maturity: string
   rate: string
-  attributes: string[]
 }
 
 interface SeedRecommendationsProps {
   recommendations: Recommendation[]
+  language: Language
 }
 
-export default function SeedRecommendations({ recommendations }: SeedRecommendationsProps) {
+export default function SeedRecommendations({
+  recommendations,
+  language,
+}: SeedRecommendationsProps) {
   const [copied, setCopied] = useState<string | null>(null)
-  const [speaking, setSpeaking] = useState<string | null>(null)
-  const [enhancedDescriptions, setEnhancedDescriptions] = useState<Record<string, string>>({})
-  const [loadingAi, setLoadingAi] = useState<Record<string, boolean>>({})
+  const [enhancedDescriptions, setEnhancedDescriptions] = useState<
+    Record<string, string>
+  >({})
   const [expandedAdvice, setExpandedAdvice] = useState<string | null>(null)
 
+  const { speak, speaking } = useTextToSpeech()
+  const {
+    generateContent: enhanceDescription,
+    loading: enhancing,
+    error: enhancementError,
+  } = useChromeAi(
+    "You are an agricultural expert. Provide a concise, practical farming tip. Keep it to 1-2 sentences."
+  )
+  const {
+    generateContent: translate,
+    loading: translating,
+    error: translationError,
+  } = useChromeAi("You are a translator. Translate the following text to Swahili.")
+
   useEffect(() => {
-    const enhanceDescriptions = async () => {
+    async function enhanceDescriptions() {
       const enhanced: Record<string, string> = {}
       for (const seed of recommendations) {
-        try {
-          const description = await generateEnhancedDescription(seed.name, seed.description)
-          enhanced[seed.id] = description
-        } catch (error) {
-          enhanced[seed.id] = seed.description
-        }
+        const prompt = `Based on this description: \"${seed.description}\", what is a good farming tip for ${seed.name}?`
+        const newDescription = await enhanceDescription(prompt)
+        enhanced[seed.id] = newDescription || seed.description
       }
       setEnhancedDescriptions(enhanced)
     }
 
-    enhanceDescriptions()
-  }, [recommendations])
+    if (recommendations.length > 0) {
+      enhanceDescriptions()
+    }
+  }, [recommendations, enhanceDescription])
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -56,36 +81,13 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleSpeak = async (text: string, id: string) => {
-    if (!("speechSynthesis" in window)) {
-      alert("Text-to-speech not supported in your browser")
-      return
-    }
-
-    if (speaking === id) {
-      window.speechSynthesis.cancel()
-      setSpeaking(null)
-      return
-    }
-
-    setSpeaking(id)
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.onend = () => setSpeaking(null)
-    window.speechSynthesis.speak(utterance)
-  }
-
-  const handleTranslate = async (id: string, kiswahiliName: string) => {
-    setLoadingAi((prev) => ({ ...prev, [id]: true }))
-    try {
-      const translated = await translateToKiswahili(kiswahiliName)
+  const handleTranslate = async (id: string, text: string) => {
+    const translated = await translate(text)
+    if (translated) {
       setEnhancedDescriptions((prev) => ({
         ...prev,
         [id]: translated,
       }))
-    } catch (error) {
-      console.error("Translation failed:", error)
-    } finally {
-      setLoadingAi((prev) => ({ ...prev, [id]: false }))
     }
   }
 
@@ -104,8 +106,9 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
                   <Leaf className="w-5 h-5 text-primary flex-shrink-0" />
                   <h3 className="text-lg font-bold text-primary">{seed.name}</h3>
                 </div>
-                <p className="text-sm text-muted-foreground italic">{seed.variety}</p>
-                <p className="text-xs text-muted-foreground mt-1">Kiswahili: {seed.kiswahili_name}</p>
+                <p className="text-sm text-muted-foreground italic">
+                  {seed.variety}
+                </p>
               </div>
             </div>
 
@@ -120,8 +123,12 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <div className="bg-secondary/30 p-3 rounded-lg flex items-start gap-2">
                 <Calendar className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-muted-foreground font-semibold">Days to Harvest</p>
-                  <p className="text-sm font-medium text-foreground">{seed.maturity}</p>
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    Days to Harvest
+                  </p>
+                  <p className="text-sm font-medium text-foreground">
+                    {seed.maturity}
+                  </p>
                 </div>
               </div>
 
@@ -129,8 +136,12 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <div className="bg-secondary/30 p-3 rounded-lg flex items-start gap-2">
                 <TrendingUp className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-muted-foreground font-semibold">Yield</p>
-                  <p className="text-sm font-medium text-foreground">{seed.yield_potential}</p>
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    Yield
+                  </p>
+                  <p className="text-sm font-medium text-foreground">
+                    {seed.yield_potential}
+                  </p>
                 </div>
               </div>
 
@@ -138,8 +149,12 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <div className="bg-accent/20 p-3 rounded-lg flex items-start gap-2 col-span-2">
                 <Calendar className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-muted-foreground font-semibold">When to Plant</p>
-                  <p className="text-sm font-medium text-foreground">{seed.planting_season}</p>
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    When to Plant
+                  </p>
+                  <p className="text-sm font-medium text-foreground">
+                    {seed.planting_season}
+                  </p>
                 </div>
               </div>
 
@@ -147,45 +162,48 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <div className="bg-accent/20 p-3 rounded-lg flex items-start gap-2">
                 <Droplets className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-muted-foreground font-semibold">Seed Rate</p>
-                  <p className="text-sm font-medium text-foreground">{seed.rate}</p>
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    Seed Rate
+                  </p>
+                  <p className="text-sm font-medium text-foreground">
+                    {seed.rate}
+                  </p>
                 </div>
               </div>
 
-              {/* Altitude Zone */}
+              {/* Altitude Range */}
               <div className="bg-accent/20 p-3 rounded-lg flex items-start gap-2">
                 <Leaf className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-muted-foreground font-semibold">Best For</p>
-                  <p className="text-sm font-medium text-foreground">{seed.altitude_zone}</p>
+                  <p className="text-xs text-muted-foreground font-semibold">
+                    Altitude Range
+                  </p>
+                  <p className="text-sm font-medium text-foreground">
+                    {seed.altitude_range}
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Attributes Tags */}
-            {seed.attributes && seed.attributes.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {seed.attributes.map((attr, idx) => (
-                  <span key={idx} className="inline-block bg-primary/10 text-primary text-xs px-2 py-1 rounded-full">
-                    {attr}
-                  </span>
-                ))}
-              </div>
-            )}
-
             {/* Agronomic Advice */}
-            {expandedAdvice === seed.id && <AgronomicAdvice cropName={seed.name} altitude={1500} />}
+            {expandedAdvice === seed.id && (
+              <AgronomicAdvice
+                cropName={seed.name}
+                altitude={1500} // Replace with actual altitude
+                language={language}
+              />
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2 flex-wrap">
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleSpeak(seed.name, seed.id)}
+                onClick={() => speak(seed.name, language === "sw" ? "sw-TZ" : "en-US")}
                 className="flex-1 bg-transparent"
               >
                 <Volume2 className="w-4 h-4 mr-1" />
-                {speaking === seed.id ? "Stop" : "Speak"}
+                {speaking ? "Stop" : "Speak"}
               </Button>
               <Button
                 size="sm"
@@ -208,7 +226,9 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setExpandedAdvice(expandedAdvice === seed.id ? null : seed.id)}
+                onClick={() =>
+                  setExpandedAdvice(expandedAdvice === seed.id ? null : seed.id)
+                }
                 className="flex-1 bg-transparent"
               >
                 <Sparkles className="w-4 h-4 mr-1" />
@@ -217,11 +237,11 @@ export default function SeedRecommendations({ recommendations }: SeedRecommendat
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleTranslate(seed.id, seed.kiswahili_name)}
-                disabled={loadingAi[seed.id]}
+                onClick={() => handleTranslate(seed.id, seed.name)}
+                disabled={translating || enhancing}
                 className="flex-1 bg-transparent"
               >
-                {loadingAi[seed.id] ? (
+                {translating || enhancing ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                     AI

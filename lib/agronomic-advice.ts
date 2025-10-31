@@ -1,67 +1,31 @@
-export async function generateAgronomicAdvice(cropName: string, altitude: number): Promise<string> {
-  // Check if Chrome AI Prompt API is available
-  if (!window.ai?.languageModel) {
+import { checkAiAvailability } from "./chrome-ai"
+
+export async function generateAgronomicAdvice(
+  cropName: string,
+  altitude: number
+): Promise<string> {
+  const availability = await checkAiAvailability()
+  if (availability === "no") {
     return getDefaultAdvice(cropName, altitude)
   }
 
   try {
-    const session = await window.ai.languageModel.create({
-      systemPrompt: `You are an expert agricultural advisor for East African farmers. 
-      Provide practical, actionable farming advice in simple language suitable for farmers with limited literacy.
-      Focus on: planting time, soil preparation, watering, pest management, harvesting, and storage.
-      Keep advice concise and practical. Format as numbered list.`,
+    const session = await window.ai!.createTextSession({
+      temperature: 0.7,
+      topK: 40,
     })
 
-    const prompt = `Give me 4-5 key farming tips for growing ${cropName} at ${altitude}m altitude. 
-    Make it simple and practical for a farmer to understand. Format as numbered list.`
+    const prompt = `You are an expert agricultural advisor for East African farmers at ${altitude}m altitude.
+    Provide 3-4 practical, actionable farming tips for growing ${cropName}.
+    Focus on: planting time, soil preparation, watering, pest management, harvesting, and storage.
+    Keep advice simple and practical for farmers with limited literacy.
+    Format as a numbered list.`
 
-    const response = await session.prompt(prompt)
-    session.destroy()
-    return response
+    const result = await session.prompt(prompt)
+    return result || getDefaultAdvice(cropName, altitude)
   } catch (error) {
-    console.error("Failed to generate advice:", error)
+    console.error("AI advice generation error:", error)
     return getDefaultAdvice(cropName, altitude)
-  }
-}
-
-export async function translateAdvice(advice: string, targetLanguage: string): Promise<string> {
-  if (targetLanguage === "en") return advice
-
-  // Check if Chrome AI Translator API is available
-  if (!window.ai?.translator) {
-    return advice // Fallback to original if translation not available
-  }
-
-  try {
-    const translator = await window.ai.translator.create({
-      sourceLanguage: "en",
-      targetLanguage: targetLanguage === "sw" ? "sw" : targetLanguage === "fr" ? "fr" : "en",
-    })
-
-    const result = await translator.translate(advice)
-    return result
-  } catch (error) {
-    console.error("Failed to translate advice:", error)
-    return advice // Fallback to original
-  }
-}
-
-export async function summarizeAdvice(advice: string): Promise<string> {
-  if (!window.ai?.languageModel) {
-    return advice.substring(0, 200) + "..."
-  }
-
-  try {
-    const session = await window.ai.languageModel.create({
-      systemPrompt: "You are a concise summarizer. Summarize the following advice in 2-3 sentences.",
-    })
-
-    const response = await session.prompt(`Summarize this farming advice in 2-3 sentences: ${advice}`)
-    session.destroy()
-    return response
-  } catch (error) {
-    console.error("Failed to summarize:", error)
-    return advice.substring(0, 200) + "..."
   }
 }
 
@@ -107,23 +71,3 @@ function getDefaultAdvice(cropName: string, altitude: number): string {
   )
 }
 
-declare global {
-  interface Window {
-    ai?: {
-      languageModel?: {
-        create: (options: { systemPrompt: string }) => Promise<{
-          prompt: (text: string) => Promise<string>
-          destroy: () => void
-        }>
-      }
-      translator?: {
-        create: (options: {
-          sourceLanguage: string
-          targetLanguage: string
-        }) => Promise<{
-          translate: (text: string) => Promise<string>
-        }>
-      }
-    }
-  }
-}

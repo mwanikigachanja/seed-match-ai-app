@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Lightbulb, Loader2, Copy, Check, Volume2, Globe } from "lucide-react"
-import { generateAgronomicAdvice, translateAdvice } from "@/lib/agronomic-advice"
+import { useChromeAi, useTextToSpeech } from "@/lib/chrome-ai"
 import type { Language } from "@/lib/language-utils"
+import { generateAgronomicAdvice } from "@/lib/agronomic-advice"
 
 interface AgronomicAdviceProps {
   cropName: string
@@ -13,45 +14,65 @@ interface AgronomicAdviceProps {
   language: Language
 }
 
-export default function AgronomicAdvice({ cropName, altitude, language }: AgronomicAdviceProps) {
+export default function AgronomicAdvice({
+  cropName,
+  altitude,
+  language,
+}: AgronomicAdviceProps) {
   const [advice, setAdvice] = useState<string | null>(null)
   const [translatedAdvice, setTranslatedAdvice] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [translating, setTranslating] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [speaking, setSpeaking] = useState(false)
   const [showTranslated, setShowTranslated] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const systemPrompt = `You are an expert agricultural advisor for East African farmers. 
+    Provide practical, actionable farming advice in simple language suitable for farmers with limited literacy.
+    Focus on: planting time, soil preparation, watering, pest management, harvesting, and storage.
+    Keep advice concise and practical. Format as a numbered list.`
+
+  const {
+    generateContent: generateAdvice,
+    loading: loadingAdvice,
+    error: adviceError,
+  } = useChromeAi(systemPrompt)
+  const {
+    generateContent: translate,
+    loading: translating,
+    error: translationError,
+  } = useChromeAi(
+    `You are a translator. Translate the following text to ${
+      language === "sw" ? "Swahili" : "French"
+    }.`
+  )
+  const { speak, speaking } = useTextToSpeech()
+
+  useEffect(() => {
+    if (adviceError) {
+      setAdvice(getDefaultAdvice(cropName))
+    }
+  }, [adviceError, cropName])
 
   const handleGetAdvice = async () => {
-    setLoading(true)
-    try {
-      const generatedAdvice = await generateAgronomicAdvice(cropName, altitude)
-      setAdvice(generatedAdvice || getDefaultAdvice(cropName))
-      setTranslatedAdvice(null)
-      setShowTranslated(false)
-    } catch (error) {
-      console.error("Failed to get advice:", error)
-      setAdvice(getDefaultAdvice(cropName))
-    } finally {
-      setLoading(false)
-    }
+    const prompt = `Give me 4-5 key farming tips for growing ${cropName} at ${altitude}m altitude. 
+    Make it simple and practical for a farmer to understand. Format as a numbered list.`
+    const generated = await generateAdvice(prompt)
+    setAdvice(generated || getDefaultAdvice(cropName))
+    setTranslatedAdvice(null)
+    setShowTranslated(false)
   }
 
   const handleTranslate = async () => {
     if (!advice) return
-
-    setTranslating(true)
-    try {
-      const translated = await translateAdvice(advice, language)
-      setTranslatedAdvice(translated)
-      setShowTranslated(true)
-    } catch (error) {
-      console.error("Failed to translate:", error)
-      setTranslatedAdvice(advice)
-      setShowTranslated(true)
-    } finally {
-      setTranslating(false)
+    if (showTranslated) {
+      setShowTranslated(false)
+      return
     }
+    if (translatedAdvice) {
+      setShowTranslated(true)
+      return
+    }
+    const translated = await translate(advice)
+    setTranslatedAdvice(translated)
+    setShowTranslated(true)
   }
 
   const handleCopy = () => {
@@ -66,18 +87,10 @@ export default function AgronomicAdvice({ cropName, altitude, language }: Agrono
   const handleSpeak = () => {
     const textToSpeak = showTranslated ? translatedAdvice : advice
     if (!textToSpeak) return
-
-    if (speaking) {
-      window.speechSynthesis.cancel()
-      setSpeaking(false)
-      return
-    }
-
-    setSpeaking(true)
-    const utterance = new SpeechSynthesisUtterance(textToSpeak)
-    utterance.lang = language === "sw" ? "sw-TZ" : language === "fr" ? "fr-FR" : "en-US"
-    utterance.onend = () => setSpeaking(false)
-    window.speechSynthesis.speak(utterance)
+    speak(
+      textToSpeak,
+      language === "sw" ? "sw-TZ" : language === "fr" ? "fr-FR" : "en-US"
+    )
   }
 
   const displayAdvice = showTranslated ? translatedAdvice : advice
@@ -87,12 +100,19 @@ export default function AgronomicAdvice({ cropName, altitude, language }: Agrono
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Lightbulb className="w-5 h-5 text-accent" />
-          <h3 className="font-semibold text-foreground">Farming Tips for {cropName}</h3>
+          <h3 className="font-semibold text-foreground">
+            Farming Tips for {cropName}
+          </h3>
         </div>
 
         {!advice ? (
-          <Button onClick={handleGetAdvice} disabled={loading} className="w-full bg-transparent" variant="outline">
-            {loading ? (
+          <Button
+            onClick={handleGetAdvice}
+            disabled={loadingAdvice}
+            className="w-full bg-transparent"
+            variant="outline"
+          >
+            {loadingAdvice ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Getting Tips...
@@ -132,11 +152,21 @@ export default function AgronomicAdvice({ cropName, altitude, language }: Agrono
                   )}
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={handleSpeak} className="flex-1 bg-transparent">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSpeak}
+                className="flex-1 bg-transparent"
+              >
                 <Volume2 className="w-3 h-3 mr-1" />
                 {speaking ? "Stop" : "Speak"}
               </Button>
-              <Button size="sm" variant="outline" onClick={handleCopy} className="flex-1 bg-transparent">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCopy}
+                className="flex-1 bg-transparent"
+              >
                 {copied ? (
                   <>
                     <Check className="w-3 h-3 mr-1" />

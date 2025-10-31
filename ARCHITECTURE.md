@@ -91,10 +91,20 @@ SeedMatch AI is a client-side focused application with minimal server-side proce
 ### Utility Layer
 
 #### Seed Data
+**`lib/database.ts`**
+- Contains the static seed data, structured into multiple tables:
+  - `suppliers`: Information about seed suppliers.
+  - `crop_categories`: Categories for different crops.
+  - `botanical_names`: A lookup table for botanical names.
+  - `master_seed_list`: The central list of all seeds.
+  - `agronomic_traits`: Details about the agronomic characteristics of each seed.
+  - `physical_characteristics`: Physical attributes of the seeds.
+  - `disease_pest_tolerance`: Information on disease and pest tolerance.
+  - `planting_guide`: Guidelines for planting each seed.
+
 **`lib/seed-data.ts`**
-- 30+ seed varieties database
-- Altitude zone filtering
-- Seed matching algorithm
+- Contains the logic for querying and joining the data from `lib/database.ts`.
+- `getRecommendedSeeds`: Filters seeds by altitude and crop name, and sorts them based on suitability.
 
 #### Chrome AI Utilities
 **`lib/chrome-ai.ts`**
@@ -121,7 +131,7 @@ SeedMatch AI is a client-side focused application with minimal server-side proce
 **`app/api/recommendations/route.ts`**
 - POST endpoint for seed recommendations
 - Input validation
-- Seed filtering by altitude
+- Seed filtering by altitude and crop name
 - Response formatting
 
 ## Data Flow
@@ -147,12 +157,13 @@ API Call to /api/recommendations
 ### 2. Recommendation Flow
 
 \`\`\`
-LocationData (altitude)
+LocationData (altitude, cropName)
     ↓
 /api/recommendations endpoint
     ↓
-getRecommendedSeeds(altitude)
-    ├─ Filter seeds by altitude range
+getRecommendedSeeds(altitude, cropName)
+    ├─ Joins data from masterSeedList, agronomicTraits, etc.
+    ├─ Filter seeds by altitude range and crop name
     └─ Sort by proximity to altitude
     ↓
 Recommendations Array
